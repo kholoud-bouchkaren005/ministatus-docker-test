@@ -15,7 +15,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout du code
+        uses: actions/checkout@v4
 
       - name: Lint du Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
@@ -30,30 +31,37 @@ jobs:
         run: docker run --rm ${{ env.IMAGE }}:ci python -m unittest -v
 
       - name: Rapport Trivy (JSON)
-        uses: aquasecurity/trivy-action@v0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
+          scan-type: image
           image-ref: ${{ env.IMAGE }}:ci
           format: json
           output: trivy-report.json
           exit-code: "0"
 
       - name: Rapport Trivy (HTML)
-        uses: aquasecurity/trivy-action@v0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
+          scan-type: image
           image-ref: ${{ env.IMAGE }}:ci
           format: template
           template: "@/contrib/html.tpl"
           output: trivy-report.html
           exit-code: "0"
+          skip-setup-trivy: true
 
       - name: Resume dans la page du run
         if: always()
         run: |
           echo "### Rapport Trivy" >> "$GITHUB_STEP_SUMMARY"
-          for s in CRITICAL HIGH MEDIUM; do
-            n=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity==\"$s\")] | length" trivy-report.json)
-            echo "- $s : $n" >> "$GITHUB_STEP_SUMMARY"
-          done
+          if [ -f trivy-report.json ]; then
+            for s in CRITICAL HIGH MEDIUM; do
+              n=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity==\"$s\")] | length" trivy-report.json)
+              echo "- $s : $n" >> "$GITHUB_STEP_SUMMARY"
+            done
+          else
+            echo "Le rapport JSON n'a pas été généré." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Publier les rapports
         if: always()
@@ -61,13 +69,16 @@ jobs:
         with:
           name: trivy-reports
           path: trivy-report.*
+          if-no-files-found: warn
 
       - name: Quality gate (HIGH et CRITICAL)
-        uses: aquasecurity/trivy-action@v0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
+          scan-type: image
           image-ref: ${{ env.IMAGE }}:ci
           format: table
           severity: HIGH,CRITICAL
           vuln-type: library
           ignore-unfixed: true
           exit-code: "1"
+          skip-setup-trivy: true
